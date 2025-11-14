@@ -1,0 +1,16 @@
+[project]
+name = "fall-detection"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.6",
+    "nengo>=4.1.0",
+    "numpy>=2.3.2",
+    "openpyxl>=3.1.5",
+    "pandas>=2.3.2",
+    "scikit-learn>=1.7.1",
+    "tensorflow>=2.20.0",
+]
+

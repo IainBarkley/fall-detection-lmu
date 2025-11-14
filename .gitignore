@@ -1,0 +1,71 @@
+# Large dataset directory - exclude from repo
+fall_detection_data/
+
+# Python virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Model checkpoints and saved models
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.hdf5
+networks/checkpoints/
+networks/saved_models/
+
+# Performance data and results (uncomment if you want to exclude)
+# performance_data/
+
+# Logs
+*.log
+logs/
+
+# UV lock file (optional - some prefer to commit this)
+# uv.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+*~
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Nengo cache
+nengo_cache/
+.nengo/
+
+# Large data files
+*.csv
+*.npy
+*.npz
+*.pkl
+*.pickle
+
+# Presentation builds (if you have LaTeX or other generated files)
+final_presentation/*.pdf
+final_presentation/*.aux
+final_presentation/*.log
+final_presentation/*.out' > .gitignore
