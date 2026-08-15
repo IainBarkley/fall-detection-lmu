@@ -18,8 +18,8 @@ This repository contains the complete pipeline for training, converting, and dep
 **Key Findings** (details in [Key Findings](#key-findings) and [Replication Study](#-replication-study-jain--semwal-2022)):
 
 1. **Temporal recurrence doesn't pay for this task.** A 1-second input window already *is* the temporal memory; spatial convolutions over it capture the fall transient. LSTM adds instability (≈1-in-5 training runs collapses) with no accuracy gain; LMU adds a modest +2.2 points that is dominated anyway by the Micro-CNN.
-2. **The deployable model wins outright.** A 41K-parameter Micro-CNN hits **94.71% accuracy** (INT8: 93.96% at 56 KB), beating every full-size baseline while fitting on a $35 Arduino.
-3. **The baseline paper's sensitivity replicates; its accuracy doesn't.** On a paper-exact reconstruction of Jain & Semwal's dataset, Fall_Initiation recall reaches 97.85% (best fold 99.1%) against their 99.24% — but overall accuracy plateaus at 88.7% vs their 97.52%, with the gap localized to two 55-sample minority classes.
+2. **The deployable model wins outright — including on the paper's own task.** The 41K-parameter Micro-CNN hits 94.71% on the 6-class task and, on the paper's 8-class task, **beats the paper's 13.95M-parameter CNN-LSTM trained on identical data** (91.44% vs 88.73%) with higher fall sensitivity (98.54% vs 97.85%). Float16 quantization is lossless at 88.8 KB; INT8 keeps 98.48% fall sensitivity at 57.1 KB.
+3. **The baseline paper's sensitivity replicates; its accuracy doesn't.** On a paper-exact reconstruction of Jain & Semwal's dataset, the paper's own architecture reaches 97.85% Fall_Initiation recall (vs their 99.24%) but only 88.7% accuracy (vs their 97.52%). The Micro-CNN closes most of the remaining gap — replicating the minority-class performance the big model sacrificed — leaving only Impact-vs-Aftermath confusion, which is irrelevant for pre-impact detection.
 
 ---
 
@@ -186,13 +186,45 @@ Rebuilding the dataset with these fixes (`scripts/preprocess_paper_exact.py`) re
 
 Per-class, the missing ~9 accuracy points are localized: Walking/Jogging/Fall_Initiation recall are within a few points of the paper, while **Stumble (recall 0.44 vs 0.93)** and **Fall_Recovery (0.35 vs 0.85)** — the two ~55-support classes — plus stairs account for nearly all of the gap. Full breakdown in `fall_detection_data/models/fallnet_paper_replication/replication_summary.txt`.
 
+### Micro-CNN on the paper's task
+
+Retraining the 41K-parameter Micro-CNN on the same paper-exact dataset with the identical protocol:
+
+| Model (same data, same protocol) | Params | Accuracy | Fall_Init Recall |
+|---|---|---|---|
+| CNN-LSTM ensemble (replication) | 13.95M | 88.73% ± 1.18% | 97.85% ± 0.87% |
+| **Micro-CNN** | **41K** | **91.44% ± 0.59%** | **98.54% ± 0.44%** (best fold 99.24%) |
+| Paper's reported | 13.95M | 97.52% | 99.24% |
+
+- **The minority classes the CNN-LSTM sacrificed are essentially replicated by the small model**: Stumble F1 = 0.923 (paper: 0.937; CNN-LSTM replication: 0.47), Fall_Recovery F1 = 0.890 (paper: 0.913; CNN-LSTM: 0.47). The paper's "hard to reproduce" minority-class numbers are reachable — just not with the paper's own architecture.
+- Fall_Initiation F1 averages 98.25% vs the paper's 98.79%; one fold's recall is numerically identical to the paper's 99.24% headline.
+- The remaining ~6-point accuracy gap is Impact-vs-Aftermath confusion (recall 0.74 / 0.85 vs the paper's 0.98 / 0.94) — adjacent post-fall phases that are semantically inert for pre-impact detection, and exactly the classes the project's 6-class formulation merges.
+
+### Quantization (8-class Micro-CNN)
+
+Per-fold TFLite conversion, each variant evaluated on its own validation split:
+
+| Variant | Accuracy | Fall_Init Recall | Size |
+|---|---|---|---|
+| FP32 | 91.44% ± 0.59% | 98.54% ± 0.44% | ~553 KB (.keras) |
+| **Float16** | **91.44%** (−0.00) | **98.54%** (−0.00) | **88.8 KB** |
+| **INT8** (full int8 I/O, Arduino-ready) | 89.30% ± 1.06% (−2.14) | **98.48%** (−0.06) | **57.1 KB** |
+
+Float16 is lossless (per-fold predictions identical to FP32). INT8's accuracy cost concentrates in already-confused non-fall classes while fall sensitivity is untouched — and even the 57 KB INT8 model outperforms the 13.95M-parameter CNN-LSTM on identical data. Artifacts in `fall_detection_data/models/micro_cnn_8class_paper/quantized/`.
+
 ### Interpretation
 
-- **The paper's safety-critical claim replicates**: near-perfect pre-impact sensitivity is reachable from the published methodology.
-- **The headline accuracy does not**, and the shortfall sits in minority classes whose reported performance (F1 ≈ 0.93 on 56 test samples, single fold) is statistically fragile. Caveats applying to both the paper and this replication: Table III reports a single (possibly best) fold, and the underlying datasets contain repeated near-identical trials per subject, which random stratified K-fold leaks across the train/test split (limitation also noted by Campanella et al. 2024).
-- **For the airbag use case this gap doesn't matter**: the decision-relevant metric is Fall_Initiation recall, and confusing Stumble with Fall_Recovery deploys no airbag either way. Chasing the remaining 9 points (e.g., via class weights or focal loss) would trade minority-class recall against fall sensitivity — the wrong trade for this application.
+- **The paper's safety-critical claim replicates**: near-perfect pre-impact sensitivity is reachable from the published methodology — and from a model 340x smaller.
+- **The headline accuracy does not replicate with the paper's own architecture**, which sacrifices the ~55-support minority classes. A better small architecture (Micro-CNN with BatchNorm) recovers them, isolating the residual gap to Impact-vs-Aftermath confusion. Caveats applying to both the paper and this replication: Table III reports a single (possibly best) fold, and the underlying datasets contain repeated near-identical trials per subject, which random stratified K-fold leaks across the train/test split (limitation also noted by Campanella et al. 2024).
+- **For the airbag use case the residual gap doesn't matter**: the decision-relevant metric is Fall_Initiation recall, and by the Impact phase, deployment has already happened. Chasing the last points (e.g., via class weights or focal loss) would trade against fall sensitivity — the wrong trade for this application.
 
-**Reproduce**: `python scripts/preprocess_paper_exact.py && python scripts/train_fallnet_paper_replication.py`
+**Reproduce**:
+```bash
+python scripts/preprocess_paper_exact.py
+python scripts/train_fallnet_paper_replication.py   # CNN-LSTM replication
+python scripts/train_micro_cnn_8class_paper.py      # Micro-CNN on the same task
+python scripts/quantize_micro_cnn_8class.py         # Float16 + INT8 variants
+```
 
 ---
 
@@ -219,6 +251,8 @@ fall-detection/
 │   ├── preprocess_paper_exact.py                  # paper-exact 8-class dataset (replication)
 │   ├── preprocess_with_transitional_window_fix.py # 6-class dataset, Tw bug fixed
 │   ├── train_fallnet_paper_replication.py         # CNN-LSTM replication run
+│   ├── train_micro_cnn_8class_paper.py            # Micro-CNN on the paper's 8-class task
+│   ├── quantize_micro_cnn_8class.py               # Float16/INT8 quantization + eval
 │   ├── retrain_cnn_only_bs512_lr1e3.py            # CNN-only, paper hyperparameters
 │   └── eval_fall_init_recall.py                   # per-class evaluation of saved folds
 ├── Research/                    # Papers and references
@@ -339,12 +373,14 @@ Micro-CNN training, quantization, and SNN conversion live in `notebooks/Reducing
 
 | Variant | Flash | RAM | Fits (256 KB RAM / 1 MB Flash)? |
 |---------|-------|-----|----------------------------------|
-| Micro-CNN Float16 | 85 KB | 60 KB | ✅ |
-| Micro-CNN INT8 | 56 KB | 40 KB | ✅ |
+| Micro-CNN Float16 (6-class) | 85 KB | 60 KB | ✅ |
+| Micro-CNN INT8 (6-class) | 56 KB | 40 KB | ✅ |
+| Micro-CNN Float16 (8-class, corrected data) | 88.8 KB | ~60 KB | ✅ |
+| Micro-CNN INT8 (8-class, corrected data) | 57.1 KB | ~40 KB | ✅ |
 | SNN Float16 (estimated) | 85 KB | 70 KB | ✅ |
 | SNN INT8 (estimated, not yet quantized) | 56 KB | 50 KB | ✅ |
 
-**Recommended**: Micro-CNN Float16 for best accuracy/size trade-off (94.71%, no accuracy drop from FP32), or Micro-CNN INT8 for smallest footprint (93.96%, currently the only variant with a working `.tflite` + Arduino `.ino` sketch).
+**Recommended**: the 8-class Micro-CNN Float16 (91.44% / 98.54% Fall_Init recall, zero quantization loss, corrected dataset) or its INT8 variant for the smallest footprint (89.30% / 98.48% at 57.1 KB). The 6-class INT8 model remains the one wired into the current Arduino `.ino` sketch + `fallnet_model.h`.
 
 *Source: `fall_detection_data/models/arduino_deployment_analysis.txt`*
 
@@ -414,6 +450,8 @@ mypy fall_detection/
 - [x] Finding: temporal recurrence not worth it — window already spans the fall transient
 - [x] Replication study of Jain & Semwal (2022): sensitivity replicates (97.85% vs 99.24%), accuracy does not (88.73% vs 97.52%); gap localized to ~55-support minority classes
 - [x] Preprocessing bugs found & fixed (transitional-window coin flip, stumble mislabeling, ADL over-extraction)
+- [x] Micro-CNN on paper-exact 8-class task: 91.44% acc / 98.54% Fall_Init recall — beats the paper's 13.95M-param architecture on identical data at 41K params
+- [x] 8-class Micro-CNN quantization: Float16 lossless (88.8 KB), INT8 keeps 98.48% Fall_Init recall (57.1 KB)
 
 ### 🔄 In Progress
 - [x] Micro-CNN training (41K params, 94.71% FP32 / 93.96% INT8)
