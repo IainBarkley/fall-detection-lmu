@@ -487,7 +487,10 @@ mypy fall_detection/
 ### 📅 Planned
 - [ ] Real-world fall testing
 - [ ] Battery life benchmarks
-- [ ] Comparison with neuromorphic chips (Intel Loihi, if available)
+- [ ] Neuromorphic hardware deployment — commercial MCU-class spiking silicon now exists (as of 2026):
+  - **SynSense Xylo IMU**: 1,000-neuron digital SNN chip with a built-in IMU front-end and a dev kit; the vendor explicitly lists fall detection as a target application, and published deployments measure ~0.5 mW system power. Requires restructuring our SNN as a *streaming recurrent* network under the 1,000-neuron budget — the LMU (O(d) spiking temporal memory, Voelker et al. 2019) is the natural architecture for this, reconnecting the project's LMU track.
+  - **Innatera Pulsar**: neuromorphic microcontroller (SNN fabric + CNN accelerator + RISC-V CPU) at microwatt power, in commercial deployment since CES 2026 — could host both the quantized Micro-CNN and the spiking model on one part.
+  - Intel Loihi 2 remains a research platform; no longer required to test the power-efficiency hypothesis.
 - [ ] Paper submission
 
 ---
@@ -583,7 +586,9 @@ If you use this code or findings in your research, please cite:
 
 - [Arduino Nano 33 BLE Sense](https://store.arduino.cc/products/arduino-nano-33-ble-sense)
 - [snnTorch Documentation](https://snntorch.readthedocs.io/)
-- [Neuromorphic Computing Resources](https://neuromorphic.com/)
+- [SynSense Xylo (IMU-focused neuromorphic chip)](https://www.synsense.ai/products/xylo/)
+- [Innatera Pulsar (neuromorphic microcontroller)](https://www.innatera.com/product/)
+- [Open Neuromorphic Hardware Guide](https://open-neuromorphic.org/neuromorphic-computing/hardware/)
 - [Intel Loihi Research](https://www.intel.com/content/www/us/en/research/neuromorphic-computing.html)
 
 ---
