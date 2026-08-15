@@ -20,6 +20,7 @@ This repository contains the complete pipeline for training, converting, and dep
 1. **Temporal recurrence doesn't pay for this task.** A 1-second input window already *is* the temporal memory; spatial convolutions over it capture the fall transient. LSTM adds instability (≈1-in-5 training runs collapses) with no accuracy gain; LMU adds a modest +2.2 points that is dominated anyway by the Micro-CNN.
 2. **The deployable model wins outright — including on the paper's own task.** The 41K-parameter Micro-CNN hits 94.71% on the 6-class task and, on the paper's 8-class task, **beats the paper's 13.95M-parameter CNN-LSTM trained on identical data** (91.44% vs 88.73%) with higher fall sensitivity (98.54% vs 97.85%). Float16 quantization is lossless at 88.8 KB; INT8 keeps 98.48% fall sensitivity at 57.1 KB.
 3. **The baseline paper's sensitivity replicates; its accuracy doesn't.** On a paper-exact reconstruction of Jain & Semwal's dataset, the paper's own architecture reaches 97.85% Fall_Initiation recall (vs their 99.24%) but only 88.7% accuracy (vs their 97.52%). The Micro-CNN closes most of the remaining gap — replicating the minority-class performance the big model sacrificed — leaving only Impact-vs-Aftermath confusion, which is irrelevant for pre-impact detection.
+4. **Spiking conversion preserves the safety metric.** A rate-coded spiking Micro-CNN retains **98.36% Fall_Initiation recall** (ANN: 98.54%) at 88.07% accuracy — tying the paper's 13.95M-parameter architecture from a 41K-parameter spiking network. The neuromorphic power case survives conversion intact; it just requires spiking silicon to cash in.
 
 ---
 
@@ -146,9 +147,12 @@ jupyter notebook
    - Micro-CNN (94.71% FP32 / 93.96% INT8) beats every full-size model above, including CNN-LMU Hybrid
    - INT8 version fits in 56 KB flash / 40 KB RAM on the $35 Arduino Nano 33 BLE Sense
 
-3. **SNN accuracy trails the deployable CNN by ~5 points**
-   - SNN: 88.78% ± 1.18% vs Micro-CNN INT8: 93.96% ± 0.49%
-   - SNN's case rests on power efficiency on neuromorphic hardware, not on-MCU accuracy — it still needs INT8 quantization and hasn't been benchmarked on real hardware yet
+3. **Spiking conversion costs ~3 accuracy points but almost no fall sensitivity**
+   - Spiking Micro-CNN (8-class, corrected data): 88.07% ± 1.51% accuracy, **98.36% ± 0.72% Fall_Init recall** vs the ANN Micro-CNN's 91.44% / 98.54%
+   - The accuracy loss concentrates in Impact/Aftermath/Fall_Recovery confusion, not the fall classes; one fold reaches the paper's 99.24% Fall_Init recall from spikes
+   - Ties the 13.95M-parameter CNN-LSTM on accuracy (88.07% vs 88.73%) and beats it on fall sensitivity
+   - The prior 6-class SNN's weak spot (93.3% Fall_Init recall) was a data problem: the corrected dataset recovers +5 points
+   - Caveat: rate coding at 25 timesteps means ~25x the compute of one ANN pass on conventional hardware — the efficiency case exists only on event-driven neuromorphic silicon, which remains unmeasured
 
 4. **Hyperparameters were not the replication bottleneck**
    - The original CNN-only training used batch_size=2 / lr=1e-5 (vs the paper's 512 / Keras-default 1e-3). Retraining with the paper's settings changed accuracy by only +0.06 points (88.82% → 88.88%) but converged in ~30 epochs instead of 50 with tighter variance — worth fixing for speed/stability, irrelevant to the accuracy gap.
@@ -212,6 +216,24 @@ Per-fold TFLite conversion, each variant evaluated on its own validation split:
 
 Float16 is lossless (per-fold predictions identical to FP32). INT8's accuracy cost concentrates in already-confused non-fall classes while fall sensitivity is untouched — and even the 57 KB INT8 model outperforms the 13.95M-parameter CNN-LSTM on identical data. Artifacts in `fall_detection_data/models/micro_cnn_8class_paper/quantized/`.
 
+### Spiking Micro-CNN on the paper's task
+
+The Micro-CNN topology with LIF neurons in place of ReLU (snnTorch; rate-coded, 25 timesteps, constant current injection, cross-entropy on mean output membrane, prediction by output spike count — methodology unchanged from the project's earlier 6-class SNN):
+
+| Model (same data, same protocol) | Accuracy | Fall_Init Recall |
+|---|---|---|
+| Micro-CNN ANN (41K) | 91.44% ± 0.59% | 98.54% ± 0.44% |
+| **Spiking Micro-CNN (41K)** | **88.07% ± 1.51%** | **98.36% ± 0.72%** |
+| CNN-LSTM ensemble (13.95M) | 88.73% ± 1.18% | 97.85% ± 0.87% |
+| Prior SNN (6-class, buggy data) | 88.78% | 93.3% |
+
+- **Conversion to spikes costs 3.4 accuracy points but only 0.18 points of fall sensitivity.** The loss lands in Impact/Aftermath/Fall_Recovery confusion; Fall_Initiation F1 is 0.978 vs the ANN's 0.982, and one fold reaches the paper's 99.24% headline recall from a spiking network.
+- **The SNN ties the paper's 13.95M-parameter architecture on accuracy and beats it on fall sensitivity.**
+- **The prior SNN's weakness was the data, not the spikes**: on the corrected dataset, Fall_Init recall jumps from 93.3% to 98.4%.
+- Caveat: simulated rate coding at 25 timesteps is ~25× one ANN forward pass on conventional hardware — on an MCU the ANN Micro-CNN is strictly better. The SNN's efficiency case rests on event-driven neuromorphic silicon (Loihi-class), where computation scales with spike counts, synaptic ops are accumulate-only, and silence is free. No on-hardware power measurements yet.
+
+Artifacts in `fall_detection_data/models/snn_micro_cnn_8class/`.
+
 ### Interpretation
 
 - **The paper's safety-critical claim replicates**: near-perfect pre-impact sensitivity is reachable from the published methodology — and from a model 340x smaller.
@@ -224,6 +246,7 @@ python scripts/preprocess_paper_exact.py
 python scripts/train_fallnet_paper_replication.py   # CNN-LSTM replication
 python scripts/train_micro_cnn_8class_paper.py      # Micro-CNN on the same task
 python scripts/quantize_micro_cnn_8class.py         # Float16 + INT8 variants
+python scripts/train_snn_micro_cnn_8class.py        # spiking Micro-CNN (snnTorch)
 ```
 
 ---
@@ -253,6 +276,7 @@ fall-detection/
 │   ├── train_fallnet_paper_replication.py         # CNN-LSTM replication run
 │   ├── train_micro_cnn_8class_paper.py            # Micro-CNN on the paper's 8-class task
 │   ├── quantize_micro_cnn_8class.py               # Float16/INT8 quantization + eval
+│   ├── train_snn_micro_cnn_8class.py              # spiking Micro-CNN (snnTorch, LIF)
 │   ├── retrain_cnn_only_bs512_lr1e3.py            # CNN-only, paper hyperparameters
 │   └── eval_fall_init_recall.py                   # per-class evaluation of saved folds
 ├── Research/                    # Papers and references
@@ -452,6 +476,7 @@ mypy fall_detection/
 - [x] Preprocessing bugs found & fixed (transitional-window coin flip, stumble mislabeling, ADL over-extraction)
 - [x] Micro-CNN on paper-exact 8-class task: 91.44% acc / 98.54% Fall_Init recall — beats the paper's 13.95M-param architecture on identical data at 41K params
 - [x] 8-class Micro-CNN quantization: Float16 lossless (88.8 KB), INT8 keeps 98.48% Fall_Init recall (57.1 KB)
+- [x] Spiking Micro-CNN on paper-exact 8-class task: 88.07% acc / 98.36% Fall_Init recall — fall sensitivity survives conversion to spikes
 
 ### 🔄 In Progress
 - [x] Micro-CNN training (41K params, 94.71% FP32 / 93.96% INT8)
